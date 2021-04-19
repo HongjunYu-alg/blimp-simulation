@@ -1,0 +1,187 @@
+function testrun
+close all;
+myfig=figure('unit','pixel','position',[100,100,1300,500]);
+myax=axes('parent',myfig,'unit','pixel','position',[70,50,700,400]);
+myax1=axes('parent',myfig,'unit','pixel','position',[900,50,350,400]);
+hold(myax,'on');
+box(myax,'on');
+grid(myax,'on');
+xlabel(myax,'X');
+ylabel(myax,'Y');
+zlabel(myax,'Z');
+set(myax,'fontname','times','fontsize',18);
+view(myax,60,20);
+hold(myax1,'on');
+box(myax1,'on');
+grid(myax1,'on');
+xlabel(myax1,'X');
+ylabel(myax1,'Y');
+zlabel(myax1,'Z');
+set(myax1,'fontname','times','fontsize',18);
+view(myax1,60,20);
+%%
+anr=(-30:60:(330-60))'*pi/180;
+alpha=0.7;
+topo=zeros(0,4);
+allp=zeros(0,3);
+xra=[-3,-2.9,-2.7,-2.3,-1.6,-0.8,0,0.8,1.6,2.3,2.7,2.9,3];
+for k=1:length(xra)-1
+    x=xra(k);
+    y=2*sqrt(1-x^2/9);
+    allp=[allp;[y*cos(anr),x*ones(length(anr),1),y*sin(anr)]];
+    for kk=1:length(anr)-1
+        topo(end+1,:)=[k-1,k,k,k-1]*length(anr)+[kk,kk,kk+1,kk+1];
+    end
+    topo(end+1,:)=[k-1,k,k,k-1]*length(anr)+[length(anr),length(anr),1,1];
+end
+x=xra(end);
+y=sqrt(1-x^2/9);
+allp=[allp;[y*cos(anr),x*ones(length(anr),1),y*sin(anr)]];
+hds={};
+%%
+if exist('mass.mat')
+    load('mass.mat','mass');
+    load('origin.mat','origin');
+    load('inertia.mat','inertia');
+else
+    dd=[0.25,0.25,0.25];
+    rho0=1.205;
+    z0=-100;
+    r2rho=0;
+    for k=1:size(topo)
+        VEC(k,1:3)=getVec(allp(topo(k,:),:));
+    end
+    [mass,origin,inertia]=getInertia(allp,topo,VEC,dd,rho0,z0,r2rho);
+    save('mass.mat','mass');
+    save('origin.mat','origin');
+    save('inertia.mat','inertia');
+end
+velocity=[0,0,0];
+omega=[0,0,0];
+frame=eye(3);
+the=60*pi/180;
+vec=[1,0,0];
+frame=myrotate(frame,the,vec,[0,0,0]);
+allp=myrotate(allp,the,vec,[0,0,0]);
+%%
+origin(3)=origin(3)+1;
+allp(:,3)=allp(:,3)+1;
+dt=0.01;
+track=origin;
+vidObj = VideoWriter('DigitalPoolNew.mp4','MPEG-4');
+vidObj.Quality=90;
+vidObj.FrameRate=1/dt;
+open(vidObj);
+for t=0:dt:15
+    title(myax,['time is ',num2str(t),' seconds']);
+    for k=1:size(hds,2)
+        delete(hds{k});
+    end
+    hds={};
+    F=[0,0,0];
+    M=[0,0,0];
+    for k=1:size(topo,1)
+        points=allp(topo(k,:),:);
+        hds{end+1}=fill3(points([1:end,1],1),points([1:end,1],2),points([1:end,1],3),'g',...
+            'facealpha',alpha,'parent',myax);
+        [tF,tM,hds]=getforce(points,origin,velocity,omega,hds,myax);
+        F=F+tF;
+        M=M+tM;
+    end
+    temp=[origin;origin+4*frame(1,:);origin+4*frame(2,:);origin+4*frame(3,:)];
+    hds{end+1}=plot3(myax,temp([1,2],1),temp([1,2],2),temp([1,2],3),'red','linewidth',2);
+    hds{end+1}=plot3(myax,temp([1,3],1),temp([1,3],2),temp([1,3],3),'red','linewidth',2);
+    hds{end+1}=plot3(myax,temp([1,4],1),temp([1,4],2),temp([1,4],3),'red','linewidth',2);
+    hds{end+1}=text(temp(2,1),temp(2,2),temp(2,3),'X',...
+        'fontname','times','fontsize',18,'parent',myax);
+    hds{end+1}=text(temp(3,1),temp(3,2),temp(3,3),'Y',...
+        'fontname','times','fontsize',18,'parent',myax);
+    hds{end+1}=text(temp(4,1),temp(4,2),temp(4,3),'Z',...
+        'fontname','times','fontsize',18,'parent',myax);
+    F=F+[0,0,-mass*9.8];
+    disp('--------------------------------------------')
+    disp(['F = [',num2str(F),']'])
+    disp(['M = [',num2str(M),']'])
+    [origin,frame,allp,velocity,omega]...
+        =updateStates(F,M,origin,omega,velocity,frame,allp,inertia,mass,dt);
+    track(end+1,:)=origin;
+    xlim(myax,origin(1)+[-4 4]);
+    ylim(myax,origin(2)+[-4 4]);
+    zlim(myax,origin(3)+[-4 4]);
+    xlim(myax1,[-10 0]);
+    ylim(myax1,3+[-5 5]);
+    zlim(myax1,[-6 6]);
+    hds{end+1}=plot3(myax1,track(:,1),track(:,2),track(:,3),'black--','linewidth',2);
+    hds{end+1}=plot3(myax,track(:,1),track(:,2),track(:,3),'black--');
+    writeVideo(vidObj,getframe(gcf));
+    pause(0.1);
+end
+close(vidObj);
+
+function [origin,frame,allp,velocity,omega]...
+    =updateStates(F,M,origin,omega,velocity,frame,allp,inertia,mass,dt)
+tor=M*frame^-1;
+ome=omega*frame^-1;
+alpha=(tor-cross(ome,ome*inertia))*inertia^-1*frame;
+acc=F/mass;
+omega=omega+alpha*dt;
+velocity=velocity+acc*dt;
+thetaOme=dt*norm(omega);
+vecOme=omega/norm(omega);
+origin=origin+velocity*dt;
+allp=allp+kron(ones(size(allp,1),1),velocity)*dt;
+allp=myrotate(allp,thetaOme,vecOme,origin);
+frame=myrotate(frame,thetaOme,vecOme,[0 0 0]);
+
+function [F,M,hds]=getforce(points,origin,velocity,omega,hds,myax)
+cp=mean(points);
+vel=velocity+cross(omega,cp-origin);
+S=getArea(points);
+vec=getVec(points);
+fp=2*getArea(points)*11.6852799*abs(cp(3))*vec;%p=p0*e^(h0-h)
+ret=vel-(vel*vec')*vec;
+if norm(ret)~=0
+    ff=-S*norm(fp)*ret/norm(ret)*0.1;
+else
+    ff=[0,0,0];
+end
+fc=-S*vel*norm(vel)*10;
+F=fp+ff+fc;
+M=cross(cp-origin,F);
+
+function point=myrotate(point,theta,vec,center)
+if theta~=0
+    for k=1:size(point,1)
+        temp=point(k,:)-center;
+        onAx=temp*(vec'*vec);
+        recAx=temp-onAx;
+        point(k,:)=center+cos(theta)*recAx+sin(theta)*cross(vec,recAx)+onAx;
+    end
+end
+
+function tec=getVec(points)
+tec=[0,0,0];
+qu=[1:size(points,1),1,2];
+for k=1:size(points,1)
+    vec=cross(points(qu(k+2),:)-points(qu(k+1),:),points(qu(k+1),:)-points(qu(k),:));
+    L=norm(vec);
+    if L~=0
+        vec=vec/norm(vec);
+        tec=tec+vec*getTrarea(points(qu([k,k+1,k+2]),:));
+    end
+end
+tec=tec/norm(tec);
+
+function S=getArea(P)
+center=mean(P);
+S=0;
+for k=1:size(P,1)-1
+    S=S+getTrarea([center;P([k,k+1],:)]);
+end
+S=S+getTrarea([center;P([k+1,1],:)]);
+
+function S=getTrarea(t)
+a=norm(t(1,:)-t(2,:));
+b=norm(t(2,:)-t(3,:));
+c=norm(t(3,:)-t(1,:));
+S=sqrt((a+b+c)*(a+b-c)*(a+c-b)*(b+c-a))/4;

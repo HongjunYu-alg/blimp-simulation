@@ -1,0 +1,65 @@
+function [mass,center,inertia,therho]=getInertia(allp,topo,vec,dd,rho0,z0,r2rho)
+po=allp(1,:);
+step=[kron([1;0;0],kron([1;-1],dd(1))),...
+    kron([0;1;0],kron([1;-1],dd(2))),...
+    kron([0;0;1],kron([1;-1],dd(3)))];
+allpoints=po;
+while 1
+    size(po)
+    tpo=zeros(0,3);
+    for k=1:size(po,1)
+        for kk=1:size(step,1)
+            tp=po(k,:)+step(kk,:);
+            if isSide(tp,allp,topo,vec)
+                flag=1;
+                for kkk=1:size(allpoints,1)
+                    if sum(abs(tp-allpoints(kkk,:)))==0
+                        flag=0;
+                        break;
+                    end
+                end
+                if flag
+                    tpo(end+1,:)=tp;
+                    allpoints(end+1,:)=tp;
+                end
+            end
+        end
+    end
+    if ~isempty(tpo)
+        po=tpo;
+    else
+        break;
+    end
+end
+v=dd(1)*dd(2)*dd(3);
+mass=0;
+center=[0,0,0];
+inertia=zeros(size(po,2),size(po,2));
+vol=0;
+for k=1:size(allpoints,1)
+    ro=rho0+r2rho*(allpoints(k,3)-z0);
+    mass=mass+v*ro;
+    center=center+allpoints(k,:)*v*ro;
+    vol=vol+v;
+end
+center=center/mass;
+therho=mass/vol;
+for k=1:size(allpoints,1)
+    x=allpoints(k,1)-center(1);
+    y=allpoints(k,2)-center(2);
+    z=allpoints(k,3)-center(3);
+    ro=rho0+r2rho*(allpoints(k,3)-z0);
+    inertia=inertia+[...
+        y^2+z^2,-x*y,-x*z;...
+        -x*y,x^2+z^2,y*z;...
+        -x*z,-y*z,x^2+y^2]*v*ro;
+end
+
+function isture=isSide(po,allp,topo,vec)
+isture=1;
+for k=1:size(topo,1)
+    if (po-allp(topo(k,1),:))*vec(k,:)'<0
+        isture=0;
+        break;
+    end
+end
